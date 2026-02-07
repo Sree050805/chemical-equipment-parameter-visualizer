@@ -37,5 +37,14 @@ A full-stack web application to upload, analyze, and visualize chemical equipmen
 
 ---
 
+## 🎥 Demo Video
+
+A short demo (2–3 minutes) showing:
+- CSV upload
+- Dynamic charts
+- History tracking
+- PDF report generation
+
+
 ## Project Structure
 

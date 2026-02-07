@@ -1,0 +1,445 @@
+import { useEffect, useMemo, useState } from "react";
+import { Pie, Bar, Scatter, Line } from "react-chartjs-2";
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
+  Legend,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+} from "chart.js";
+
+ChartJS.register(
+  ArcElement,
+  Tooltip,
+  Legend,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement
+);
+
+const API = "http://127.0.0.1:8000/api";
+const AUTH = "Basic " + btoa("Sree345:123456");
+
+// Try common raw endpoints (because your backend naming changed multiple times)
+const RAW_ENDPOINTS = (id) => [
+  `${API}/equipment/${id}/`,
+  `${API}/datasets/${id}/equipment/`,
+  `${API}/data/${id}/equipment/`,
+];
+
+export default function App() {
+  const [file, setFile] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [raw, setRaw] = useState([]);
+  const [activeId, setActiveId] = useState(null);
+  const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    loadHistory(true);
+  }, []);
+
+  async function loadHistory(loadLatest = false) {
+    try {
+      setStatus("Loading history...");
+      const res = await fetch(`${API}/history/`, {
+        headers: { Authorization: AUTH },
+      });
+
+      if (!res.ok) throw new Error(`History failed: ${res.status}`);
+      const data = await res.json();
+
+      setHistory(data);
+      setStatus("");
+
+      if (loadLatest && data.length > 0) {
+        await loadDataset(data[0].id);
+      }
+    } catch (e) {
+      setStatus(String(e.message || e));
+    }
+  }
+
+  async function loadDataset(id) {
+    setActiveId(id);
+    setStatus("Loading charts...");
+
+    // 1) STATS (must succeed for Pie/Bar/Summary)
+    try {
+      const statsRes = await fetch(`${API}/stats/${id}/`, {
+        headers: { Authorization: AUTH },
+      });
+
+      if (!statsRes.ok) throw new Error(`Stats failed: ${statsRes.status}`);
+      const stats = await statsRes.json();
+      setSummary(stats); // ✅ set immediately
+    } catch (e) {
+      setSummary(null);
+      setRaw([]);
+      setStatus("Stats endpoint not working. Check /api/stats/<id>/");
+      return;
+    }
+
+    // 2) RAW EQUIPMENT (optional for Scatter/Line)
+    let gotRaw = false;
+    for (const url of RAW_ENDPOINTS(id)) {
+      try {
+        const r = await fetch(url, { headers: { Authorization: AUTH } });
+        if (!r.ok) continue;
+
+        const data = await r.json();
+        if (Array.isArray(data)) {
+          setRaw(data);
+          gotRaw = true;
+          break;
+        }
+      } catch {
+        // ignore and try next
+      }
+    }
+
+    if (!gotRaw) {
+      setRaw([]);
+      setStatus("Loaded summary. (Raw data endpoint missing → scatter/line hidden)");
+    } else {
+      setStatus("");
+    }
+  }
+
+  async function uploadCSV() {
+    if (!file) return alert("Select a CSV first");
+
+    try {
+      setStatus("Uploading...");
+      const fd = new FormData();
+      fd.append("file", file);
+
+      const res = await fetch(`${API}/upload/`, {
+        method: "POST",
+        headers: { Authorization: AUTH },
+        body: fd,
+      });
+
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+
+      setFile(null);
+      await loadHistory(true); // ✅ reload + load latest charts
+      setStatus("");
+    } catch (e) {
+      setStatus(String(e.message || e));
+    }
+  }
+
+  // Normalize keys
+  const dist =
+    summary?.type_distribution ??
+    summary?.typeDistribution ??
+    {};
+
+  const total =
+    summary?.total_count ?? summary?.totalCount ?? 0;
+  const avgFlow =
+    summary?.avg_flowrate ?? summary?.avgFlowrate ?? 0;
+  const avgPressure =
+    summary?.avg_pressure ?? summary?.avgPressure ?? 0;
+  const avgTemp =
+    summary?.avg_temperature ?? summary?.avgTemperature ?? 0;
+
+  const pieData = useMemo(
+    () => ({
+      labels: Object.keys(dist),
+      datasets: [
+        {
+          data: Object.values(dist),
+          backgroundColor: [
+            "#4e79a7",
+            "#f28e2b",
+            "#e15759",
+            "#76b7b2",
+            "#59a14f",
+            "#edc949",
+          ],
+        },
+      ],
+    }),
+    [dist]
+  );
+
+  const barData = useMemo(
+    () => ({
+      labels: Object.keys(dist),
+      datasets: [
+        {
+          label: "Count",
+          data: Object.values(dist),
+          backgroundColor: "#4e79a7",
+        },
+      ],
+    }),
+    [dist]
+  );
+
+  const scatterData = useMemo(
+    () => ({
+      datasets: [
+        {
+          label: "Flowrate vs Pressure",
+          data: raw
+            .map((r) => ({
+              x: Number(r.flowrate ?? r.Flowrate),
+              y: Number(r.pressure ?? r.Pressure),
+            }))
+            .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)),
+          backgroundColor: "#e15759",
+        },
+      ],
+    }),
+    [raw]
+  );
+
+  const lineData = useMemo(
+    () => ({
+      labels: raw.map((_, i) => `Eq ${i + 1}`),
+      datasets: [
+        {
+          label: "Temperature",
+          data: raw
+            .map((r) => Number(r.temperature ?? r.Temperature))
+            .filter((v) => Number.isFinite(v)),
+          borderColor: "#59a14f",
+          backgroundColor: "rgba(89,161,79,0.25)",
+          tension: 0.35,
+          fill: true,
+        },
+      ],
+    }),
+    [raw]
+  );
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false, // ✅ important so it fits card height
+    plugins: { legend: { position: "top" } },
+  };
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.header}>
+        <div>
+          <div style={styles.h1}>Chemical Equipment Parameter Visualizer</div>
+          <div style={styles.sub}>Upload CSV → view summary, history, charts & PDF report</div>
+        </div>
+
+        <div style={styles.uploadBox}>
+          <input
+            type="file"
+            accept=".csv"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+          />
+          <button style={styles.btn} onClick={uploadCSV}>
+            Upload CSV
+          </button>
+        </div>
+      </div>
+
+      {status && <div style={styles.status}>{status}</div>}
+
+      <div style={styles.grid2}>
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>Upload History (Last 5)</div>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th>Filename</th>
+                <th>Uploaded</th>
+                <th>Total</th>
+                <th>PDF</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((h) => (
+                <tr
+                  key={h.id}
+                  onClick={() => loadDataset(h.id)}
+                  style={{
+                    cursor: "pointer",
+                    background: h.id === activeId ? "#eaf1ff" : "transparent",
+                  }}
+                >
+                  <td style={{ wordBreak: "break-word" }}>{h.filename}</td>
+                  <td>{String(h.uploaded_at)}</td>
+                  <td>{h.total_count}</td>
+                  <td>
+                    <a href={`${API}/report/${h.id}/`} target="_blank" rel="noreferrer">
+                      Download
+                    </a>
+                  </td>
+                </tr>
+              ))}
+              {history.length === 0 && (
+                <tr>
+                  <td colSpan="4" style={{ textAlign: "center", padding: 12 }}>
+                    No uploads yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>Summary</div>
+          {summary ? (
+            <div style={styles.summaryGrid}>
+              <SummaryBox label="Total Equipment" value={total} />
+              <SummaryBox label="Avg Flowrate" value={Number(avgFlow).toFixed(2)} />
+              <SummaryBox label="Avg Pressure" value={Number(avgPressure).toFixed(2)} />
+              <SummaryBox label="Avg Temperature" value={Number(avgTemp).toFixed(2)} />
+            </div>
+          ) : (
+            <div style={{ padding: 12 }}>Select a dataset from history to load charts.</div>
+          )}
+        </div>
+      </div>
+
+      {summary && (
+        <div style={styles.grid2}>
+          <ChartCard title="Equipment Type Distribution">
+            <Pie data={pieData} options={chartOptions} />
+          </ChartCard>
+
+          <ChartCard title="Equipment Count">
+            <Bar data={barData} options={chartOptions} />
+          </ChartCard>
+
+          {/* Only show these if raw data exists */}
+          {raw.length > 0 ? (
+            <>
+              <ChartCard title="Flowrate vs Pressure (Scatter)">
+                <Scatter
+                  data={scatterData}
+                  options={{
+                    ...chartOptions,
+                    scales: {
+                      x: { title: { display: true, text: "Flowrate" } },
+                      y: { title: { display: true, text: "Pressure" } },
+                    },
+                  }}
+                />
+              </ChartCard>
+
+              <ChartCard title="Temperature Trend (Line)">
+                <Line data={lineData} options={chartOptions} />
+              </ChartCard>
+            </>
+          ) : (
+            <div style={{ ...styles.card, gridColumn: "1 / span 2" }}>
+              <b>Scatter/Line hidden</b> because your backend is not returning raw rows for this dataset.
+              <div style={{ marginTop: 8, fontSize: 14 }}>
+                If you want these charts, you must have an endpoint that returns equipment rows like:
+                <code style={styles.code}> flowrate, pressure, temperature </code>.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SummaryBox({ label, value }) {
+  return (
+    <div style={styles.summaryBox}>
+      <div style={{ fontSize: 14, opacity: 0.8 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 800 }}>{value}</div>
+    </div>
+  );
+}
+
+function ChartCard({ title, children }) {
+  return (
+    <div style={styles.card}>
+      <div style={styles.cardTitle}>{title}</div>
+      <div style={{ height: 320, position: "relative" }}>{children}</div>
+    </div>
+  );
+}
+
+const styles = {
+  page: {
+    minHeight: "100vh",
+    background: "linear-gradient(180deg, #f4f7ff 0%, #eef2ff 100%)",
+    padding: 24,
+    fontFamily: "Segoe UI, Arial",
+    color: "#111827",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 16,
+    alignItems: "center",
+    background: "#ffffff",
+    padding: 18,
+    borderRadius: 12,
+    boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
+    marginBottom: 16,
+  },
+  h1: { fontSize: 26, fontWeight: 900 },
+  sub: { fontSize: 14, opacity: 0.75, marginTop: 4 },
+  uploadBox: { display: "flex", gap: 10, alignItems: "center" },
+  btn: {
+    padding: "8px 14px",
+    borderRadius: 10,
+    border: "1px solid #dbe4ff",
+    background: "#2563eb",
+    color: "white",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  status: {
+    background: "#fff7ed",
+    border: "1px solid #fed7aa",
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+    fontSize: 14,
+  },
+  grid2: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 16,
+    marginBottom: 16,
+  },
+  card: {
+    background: "#ffffff",
+    borderRadius: 12,
+    padding: 16,
+    boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
+  },
+  cardTitle: { fontSize: 16, fontWeight: 800, marginBottom: 10 },
+  summaryGrid: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 },
+  summaryBox: {
+    background: "#f4f7ff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    padding: 14,
+    textAlign: "center",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    fontSize: 14,
+  },
+  code: {
+    padding: "2px 6px",
+    background: "#f3f4f6",
+    borderRadius: 6,
+    marginLeft: 6,
+  },
+};

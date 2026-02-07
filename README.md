@@ -1,45 +1,41 @@
 # Chemical Equipment Parameter Visualizer
 
-A hybrid Web + Desktop application for visualizing chemical equipment data.
+A full-stack web application to upload, analyze, and visualize chemical equipment parameter data using interactive charts and downloadable PDF reports.
+
+---
 
 ## Features
-- **Web App**: React-based dashboard for easy access and visualization.
-- **Desktop App**: PyQt5-based native client for desktop users.
-- **Shared Backend**: Node.js/Express API with Postgres database.
-- **Data Analysis**: CSV parsing, summary statistics, and charts.
 
-## Structure
-- `client/`: React Web Application code.
-- `server/`: Node.js Backend API code.
-- `shared/`: Shared TypeScript types for API contracts.
-- `desktop/`: Python Desktop Application code.
+- Upload CSV files containing chemical equipment data
+- Automatically computes:
+  - Total equipment count
+  - Average flowrate
+  - Average pressure
+  - Average temperature
+- Dynamic data visualizations:
+  - Equipment type distribution (Pie Chart)
+  - Equipment count comparison (Bar Chart)
+- Upload history tracking (last 5 datasets)
+- Click any dataset to view its charts
+- Download PDF reports for each dataset
+- Secure API access using authentication
 
-## Web Application
-The web application runs automatically in the Replit environment.
-1. Click "Run" to start the server.
-2. Open the Webview to access the app.
-3. Register/Login to upload data and view charts.
-
-## Desktop Application
-The desktop application code is located in the `desktop/` folder. To run it locally:
-
-1. **Install Python**: Ensure Python 3 is installed on your machine.
-2. **Install Dependencies**:
-   ```bash
-   pip install -r desktop/requirements.txt
-   ```
-   (Note: You may need to install PyQt5 system libraries depending on your OS).
-
-3. **Configure URL**:
-   Open `desktop/main.py` and update the `API_BASE_URL` variable to point to your deployed Replit URL (e.g., `https://your-repl-name.replit.app`).
-   Default is `http://localhost:5000` for local testing if you run the backend locally.
-
-4. **Run App**:
-   ```bash
-   python desktop/main.py
-   ```
+---
 
 ## Tech Stack
-- **Web**: React, Recharts, Tailwind CSS.
-- **Desktop**: Python, PyQt5, Matplotlib, Requests.
-- **Backend**: Node.js, Express, Drizzle ORM, Postgres.
+
+### Frontend
+- React (Vite)
+- Chart.js
+- HTML, CSS, JavaScript
+
+### Backend
+- Django
+- Django REST Framework
+- Pandas (data analysis)
+- ReportLab (PDF generation)
+
+---
+
+## Project Structure
+
